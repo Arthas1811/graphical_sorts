@@ -1,0 +1,1 @@
+#library for Searching Algorithms with GUI for IT-Classes
