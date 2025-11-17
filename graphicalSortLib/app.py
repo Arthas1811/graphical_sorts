@@ -1,7 +1,22 @@
+REFERENCE_ELEMENT_COUNT = 50
+MIN_DELAY = 0.002
+MAX_DELAY = 0.5
+DEFAULT_DELAY = 0.1
+
+
+def get_adaptive_delay(base_delay: float, element_count: int) -> float:
+    """Return a frame delay scaled by the current element count."""
+    if element_count <= 0:
+        return base_delay
+    scaled_delay = base_delay * (REFERENCE_ELEMENT_COUNT / element_count)
+    if scaled_delay < MIN_DELAY:
+        return MIN_DELAY
+    if scaled_delay > MAX_DELAY:
+        return MAX_DELAY
+    return scaled_delay
+
 import tkinter as tk
 from tkinter import ttk, messagebox
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
 import random
 import threading
 
@@ -23,11 +38,12 @@ class SortingVisualizerApp:
 
         self.array = []
         self.algorithm = tk.StringVar()
-        self.delay = tk.DoubleVar(value=0.1)
+        self.delay = tk.DoubleVar(value=DEFAULT_DELAY)
         self.stop_sorting = False  # Zum Stoppen der Sortierung
         self.sorting_thread = None  # Referenz für den Sortier-Thread
         self.array_mode = tk.StringVar(value="generate")  # Default: Generate Array
         self.output_after_swap = tk.BooleanVar(value=False)  # Ausgabe nach jedem Tausch
+        self.rectangles = []
 
         self.create_widgets()
         self.setup_plot()
@@ -89,11 +105,9 @@ class SortingVisualizerApp:
         self.toggle_array_mode()  # Initiales Umschalten
 
     def setup_plot(self):
-        self.figure = Figure(figsize=(8, 4), dpi=100)
-        self.ax = self.figure.add_subplot(111)
-
-        canvas = FigureCanvasTkAgg(self.figure, self.root)
-        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas = tk.Canvas(self.root, height=400, bg="white", highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.canvas.bind("<Configure>", lambda event: self.update_plot())
 
     def generate_array(self):
         """Erstellt einen sortierten Array."""
@@ -118,15 +132,46 @@ class SortingVisualizerApp:
             messagebox.showerror("Invalid Input", "Custom array must contain only integers separated by spaces.")
 
     def update_plot(self, colors=None):
-        self.ax.clear()
-        if colors is None:
-            colors = ["blue"] * len(self.array)
-        self.ax.bar(range(len(self.array)), self.array, color=colors)
-        self.ax.set_title("Sorting Visualization")
-        self.ax.set_xticks([])
-        if self.array:
-            self.ax.set_yticks(range(0, max(self.array) + 1, max(1, max(self.array) // 10)))
-        self.figure.canvas.draw()
+        if not hasattr(self, "canvas"):
+            return
+
+        if not self.array:
+            self.canvas.delete("all")
+            self.rectangles = []
+            return
+
+        if colors is None or len(colors) != len(self.array):
+            colors = ["#1f77b4"] * len(self.array)
+
+        width = max(self.canvas.winfo_width(), 1)
+        height = max(self.canvas.winfo_height(), 1)
+        max_value = max(self.array)
+        if max_value == 0:
+            max_value = 1
+        bar_width = max(width / len(self.array), 1)
+
+        def bar_coords(index, value):
+            x0 = index * bar_width
+            x1 = x0 + bar_width
+            bar_height = (value / max_value) * (height - 10)
+            y0 = height - bar_height
+            return x0, y0, x1, height
+
+        if len(self.rectangles) != len(self.array):
+            self.canvas.delete("all")
+            self.rectangles = []
+            for index, value in enumerate(self.array):
+                coords = bar_coords(index, value)
+                rect_id = self.canvas.create_rectangle(*coords, fill=colors[index], outline="")
+                self.rectangles.append(rect_id)
+        else:
+            for index, value in enumerate(self.array):
+                rect_id = self.rectangles[index]
+                coords = bar_coords(index, value)
+                self.canvas.coords(rect_id, *coords)
+                self.canvas.itemconfig(rect_id, fill=colors[index])
+
+        self.canvas.update_idletasks()
 
     def toggle_array_mode(self):
         """Schaltet zwischen den Modi 'Generate Array' und 'Use Custom Array'."""
@@ -177,7 +222,8 @@ class SortingVisualizerApp:
                     print("Current Array:", array)  # Ausgabe der Liste nach jedem Tausch
                 self.update_plot(colors)
                 self.root.update_idletasks()
-                self.root.after(int(self.delay.get() * 1000))
+                adaptive_delay = get_adaptive_delay(self.delay.get(), len(self.array))
+                self.root.after(int(adaptive_delay * 1000))
 
             algorithm(self.array, visualizer)
             if not self.stop_sorting:
