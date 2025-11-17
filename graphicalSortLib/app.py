@@ -3,6 +3,7 @@ import random
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
+import webbrowser
 
 
 
@@ -113,6 +114,21 @@ class SortingVisualizerApp:
 
         self.create_widgets()
         self.setup_plot()
+        self._add_signature()
+
+    def _add_signature(self):
+        label = tk.Label(
+            self.root,
+            text="by Arthas1811",
+            fg="#1a0dab",
+            cursor="hand2",
+        )
+        label.bind(
+            "<Button-1>",
+            lambda _event: webbrowser.open_new_tab("https://github.com/Arthas1811"),
+        )
+        label.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
+        self.signature_label = label
 
     def create_widgets(self):
         frame = tk.Frame(self.root)
