@@ -1,24 +1,90 @@
-REFERENCE_ELEMENT_COUNT = 50
-MIN_DELAY = 0.002
-MAX_DELAY = 0.5
-DEFAULT_DELAY = 0.1
-
-
-def get_adaptive_delay(base_delay: float, element_count: int) -> float:
-    """Return a frame delay scaled by the current element count."""
-    if element_count <= 0:
-        return base_delay
-    scaled_delay = base_delay * (REFERENCE_ELEMENT_COUNT / element_count)
-    if scaled_delay < MIN_DELAY:
-        return MIN_DELAY
-    if scaled_delay > MAX_DELAY:
-        return MAX_DELAY
-    return scaled_delay
-
-import tkinter as tk
-from tkinter import ttk, messagebox
+import math
 import random
 import threading
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+
+
+def _adaptive_delay(length, base_delay, baseline=200):
+    """Drop the delay as arrays grow so the framerate is never throttled."""
+    normalized_delay = max(0.0, base_delay)
+    if normalized_delay == 0.0 or length <= 0:
+        return 0.0
+    if length <= baseline:
+        return normalized_delay
+    over = max(0, length - baseline)
+    span = baseline if baseline > 0 else 1
+    factor = max(0.0, 1 - over / span)
+    return normalized_delay * factor
+
+
+def _frame_skip_interval(length, base=50, visible_capacity=None, estimated_ops=None):
+    """Return how many updates to skip to keep rendering responsive."""
+    capacity = visible_capacity if visible_capacity and visible_capacity > 0 else base
+    if capacity <= 0:
+        capacity = 1
+    scale_size = estimated_ops if estimated_ops and estimated_ops > 0 else length
+    if scale_size <= 0:
+        return 1
+    if scale_size <= capacity:
+        return 1
+    return max(1, math.ceil(scale_size / capacity))
+
+
+def _downsample(values, colors, max_samples, default_color):
+    """Reduce the dataset so each rendered bar stays at least 1px wide."""
+    length = len(values)
+    if max_samples is None or max_samples <= 0 or length <= max_samples:
+        return values, colors
+
+    chunk = max(1, -(-length // max_samples))
+    ds_values = []
+    ds_colors = []
+    for start in range(0, length, chunk):
+        end = min(length, start + chunk)
+        chunk_values = values[start:end]
+        chunk_colors = colors[start:end]
+        ds_values.append(max(chunk_values))
+        ds_color = default_color
+        for color in chunk_colors:
+            if color != default_color:
+                ds_color = color
+                break
+        ds_colors.append(ds_color)
+    return ds_values, ds_colors
+
+
+_N_LOG_N_ALGOS = {
+    "Quick Sort",
+    "Heap Sort",
+    "Tim Sort",
+    "Merge Sort",
+}
+
+_N_SQUARED_ALGOS = {
+    "Insertion Sort",
+    "Selection Sort",
+    "Bubble Sort",
+    "Binary Insertion Sort",
+}
+
+
+def _estimate_total_operations(algorithm_name, length):
+    """Estimate how many visualization updates the algorithm may trigger."""
+    if length <= 0:
+        return 0
+    n = max(1, length)
+    if algorithm_name in _N_LOG_N_ALGOS:
+        return n * math.log2(n)
+    if algorithm_name in _N_SQUARED_ALGOS:
+        return n * n
+    if algorithm_name == "Bogo Sort":
+        return n ** 3
+    return n
+
+
+DEFAULT_BAR_COLOR = "#1f77b4"
 
 from algorithms.quick_sort import quick_sort
 from algorithms.heap_sort import heap_sort
@@ -38,7 +104,7 @@ class SortingVisualizerApp:
 
         self.array = []
         self.algorithm = tk.StringVar()
-        self.delay = tk.DoubleVar(value=DEFAULT_DELAY)
+        self.delay = tk.DoubleVar(value=0.1)
         self.stop_sorting = False  # Zum Stoppen der Sortierung
         self.sorting_thread = None  # Referenz für den Sortier-Thread
         self.array_mode = tk.StringVar(value="generate")  # Default: Generate Array
@@ -141,14 +207,21 @@ class SortingVisualizerApp:
             return
 
         if colors is None or len(colors) != len(self.array):
-            colors = ["#1f77b4"] * len(self.array)
+            colors = [DEFAULT_BAR_COLOR] * len(self.array)
 
-        width = max(self.canvas.winfo_width(), 1)
+        width_px = self.canvas.winfo_width()
+        width = max(width_px, 1)
         height = max(self.canvas.winfo_height(), 1)
-        max_value = max(self.array)
+        capacity = self._visible_capacity()
+        max_visible_bars = capacity if capacity else int(width)
+        max_visible_bars = max(1, max_visible_bars)
+        display_values, display_colors = _downsample(self.array, colors, max_visible_bars, DEFAULT_BAR_COLOR)
+
+        max_value = max(display_values)
         if max_value == 0:
             max_value = 1
-        bar_width = max(width / len(self.array), 1)
+        display_len = len(display_values)
+        bar_width = width / display_len
 
         def bar_coords(index, value):
             x0 = index * bar_width
@@ -157,21 +230,29 @@ class SortingVisualizerApp:
             y0 = height - bar_height
             return x0, y0, x1, height
 
-        if len(self.rectangles) != len(self.array):
+        if len(self.rectangles) != display_len:
             self.canvas.delete("all")
             self.rectangles = []
-            for index, value in enumerate(self.array):
+            for index, value in enumerate(display_values):
                 coords = bar_coords(index, value)
-                rect_id = self.canvas.create_rectangle(*coords, fill=colors[index], outline="")
+                rect_id = self.canvas.create_rectangle(*coords, fill=display_colors[index], outline="")
                 self.rectangles.append(rect_id)
         else:
-            for index, value in enumerate(self.array):
+            for index, value in enumerate(display_values):
                 rect_id = self.rectangles[index]
                 coords = bar_coords(index, value)
                 self.canvas.coords(rect_id, *coords)
-                self.canvas.itemconfig(rect_id, fill=colors[index])
+                self.canvas.itemconfig(rect_id, fill=display_colors[index])
 
         self.canvas.update_idletasks()
+
+    def _visible_capacity(self):
+        if not hasattr(self, "canvas"):
+            return None
+        width = self.canvas.winfo_width()
+        if width <= 0:
+            return None
+        return max(1, int(width))
 
     def toggle_array_mode(self):
         """Schaltet zwischen den Modi 'Generate Array' und 'Use Custom Array'."""
@@ -212,18 +293,31 @@ class SortingVisualizerApp:
             "Bogo Sort": bogosort,
             "Binary Insertion Sort": binary_insertion_sort,
         }
-        algorithm = algorithms[self.algorithm.get()]
+        selected_algo_name = self.algorithm.get()
+        algorithm = algorithms[selected_algo_name]
 
         def run_sorting():
+            frame_state = {"count": 0}
+            total_ops_estimate = _estimate_total_operations(selected_algo_name, len(self.array))
+
             def visualizer(array, colors):
                 if self.stop_sorting:
                     return
                 if self.output_after_swap.get():
                     print("Current Array:", array)  # Ausgabe der Liste nach jedem Tausch
+                frame_state["count"] += 1
+                capacity = self._visible_capacity()
+                skip_interval = _frame_skip_interval(
+                    len(array),
+                    visible_capacity=capacity,
+                    estimated_ops=total_ops_estimate,
+                )
+                if frame_state["count"] % skip_interval != 0:
+                    return
                 self.update_plot(colors)
                 self.root.update_idletasks()
-                adaptive_delay = get_adaptive_delay(self.delay.get(), len(self.array))
-                self.root.after(int(adaptive_delay * 1000))
+                frame_delay = _adaptive_delay(len(array), self.delay.get())
+                self.root.after(int(frame_delay * 1000))
 
             algorithm(self.array, visualizer)
             if not self.stop_sorting:
