@@ -87,15 +87,15 @@ def _estimate_total_operations(algorithm_name, length):
 
 DEFAULT_BAR_COLOR = "#1f77b4"
 
-from algorithms.quick_sort import quick_sort
-from algorithms.heap_sort import heap_sort
-from algorithms.tim_sort import tim_sort
-from algorithms.insertion_sort import insertion_sort
-from algorithms.merge_sort import merge_sort
-from algorithms.selection_sort import selection_sort
-from algorithms.bubble_sort import bubble_sort
-from algorithms.bogo_sort import bogosort
-from algorithms.binary_insertion_sort import binary_insertion_sort
+from .algorithms.quick_sort import quick_sort
+from .algorithms.heap_sort import heap_sort
+from .algorithms.tim_sort import tim_sort
+from .algorithms.insertion_sort import insertion_sort
+from .algorithms.merge_sort import merge_sort
+from .algorithms.selection_sort import selection_sort
+from .algorithms.bubble_sort import bubble_sort
+from .algorithms.bogo_sort import bogosort
+from .algorithms.binary_insertion_sort import binary_insertion_sort
 
 
 class SortingVisualizerApp:

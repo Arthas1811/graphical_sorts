@@ -1,2 +1,5 @@
 graphicalSortLib/__pycache__
 graphicalSortLib/algorithms/__pycache__
+graphical_sort_lib.egg-info
+dist
+build
